@@ -7,7 +7,7 @@ with open ('/.../.../.../CSVs/2kTestEndVert.csv') as f:
     print('past reader')
     
 for count, poly in enumerate(readout):
-    accWidth = 0.0 #just changed this, if there're issues
+    accWidth = 0.0 
     vertTotal = int((len(poly) * 6/9) / 2)
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.mesh.primitive_cylinder_add(vertices=vertTotal, radius=1, depth=1, end_fill_type='NGON', location=(0,0,(count)))

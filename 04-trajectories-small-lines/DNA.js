@@ -9,7 +9,7 @@ class DNA {
   constructor(num) {
     //unique ID
     //generates a random 5-digit number
-    //this actually migth create a conflict 1 out of every 5k times, where two orgs get assigned the same uID
+    //this actually might create a conflict 1 out of every 5k times, where two orgs get assigned the same uID
     //eventually change to single use IDs
     //this.uID = Math.floor(Math.random() * 10000);  
     this.uID = uniqueID;

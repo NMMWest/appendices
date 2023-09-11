@@ -22,7 +22,7 @@ function setup() {
   stats.class("stats");
 
   //createCanvas(640, 360);
-  //I changes the target to numbers as well, to match what's being created in newChar
+  //I changed the target to numbers as well, to match what's being created in newChar
   target = "1111111111";
   popmax = 200;
   mutationRate = 0.01;

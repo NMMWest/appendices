@@ -13,7 +13,7 @@ let holding = [];
 function setup() {
 
   createCanvas(600, 800);
-  //changes the target to numbers as well, to match what's being created in newChar
+  //changed the target to numbers as well, to match what's being created in newChar
   //gotta keep these all 8 elements
   target = [1,1,1,1,1,1,1,1];
   popmax = 50;

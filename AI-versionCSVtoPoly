@@ -1,0 +1,146 @@
+import csv
+import bpy
+import bmesh
+
+# --------------------------
+# Tunables
+# --------------------------
+csv_path = r’/…/…/Desktop/VG-total/CSVs/5kTestEndVert.csv'  # <--- your path
+N_SAMPLES = 512      # uniform samples per row (increase for smoother)
+DZ = 1.0             # Z spacing between rows = depth increment
+SCALE_WIDTH = 20.0   # you multiply polyWidth by 20 in your script; keep same
+OBJECT_NAME = "VitaglyphSurface"
+
+# --------------------------
+# Helpers
+# --------------------------
+def lerp(a, b, t): return a + (b - a) * t
+
+def resample_polyline(xs, ys, n):
+    """Resample y(x) to n points uniformly in x from xs[0]..xs[-1]."""
+    if not xs or len(xs) != len(ys):
+        return [], []
+    x0, x1 = xs[0], xs[-1]
+    if x1 <= x0:
+        # degenerate or reversed; just repeat
+        return [x0]*n, [ys[0]]*n
+    xr = [x0 + (x1 - x0) * (i / (n - 1)) for i in range(n)]
+    yr = []
+    j = 0
+    for xq in xr:
+        while j < len(xs) - 2 and xs[j+1] < xq:
+            j += 1
+        xA, yA = xs[j], ys[j]
+        xB, yB = xs[j+1], ys[j+1]
+        t = 0.0 if xB == xA else (xq - xA) / (xB - xA)
+        yr.append(lerp(yA, yB, t))
+    return xr, yr
+
+def dedupe_monotonic(xs, ys):
+    """Remove duplicate xs while keeping monotonic increase."""
+    X, Y = [], []
+    last = None
+    for x, y in zip(xs, ys):
+        if last is None or x != last:
+            X.append(x); Y.append(y); last = x
+    return X, Y
+
+# --------------------------
+# Load CSV and build per-row polylines in X (width) with Y values
+# Your data: chunks of 9 columns:
+#   coords: (i,i+1), (i+2,i+3), (i+4,i+5)
+#   polyWidth at (i+8) -> scale by SCALE_WIDTH
+# We accumulate width like your code (accWidth), and attach Y from coords.
+# --------------------------
+with open(csv_path, 'r', newline='') as f:
+    readout = list(csv.reader(f))
+
+rows_polylines = []  # list of (xs[], ys[]) per row
+
+for row_idx, poly in enumerate(readout):
+    xs, ys = [], []
+    accWidth = 0.0
+    i = 9
+    while i + 8 < len(poly):
+        # Three (x,y) pairs
+        c0x = abs(float(poly[i]  )); c0y = abs(float(poly[i+1]))
+        c1x = abs(float(poly[i+2])); c1y = abs(float(poly[i+3]))
+        c2x = abs(float(poly[i+4])); c2y = abs(float(poly[i+5]))
+        polyWidth = float(poly[i+8]) * SCALE_WIDTH
+
+        # Build internal breakpoints across this "cell"
+        x0 = accWidth
+        x1 = x0 + c0x
+        x2 = x1 + c1x
+        x3 = x2 + c2x
+        xR = accWidth + polyWidth   # right edge (forces uniform span)
+
+        # Assign Y values at breaks (mirrors your use of coords[k][1])
+        # left edge + after each segment; keep last value to right edge
+        local_xs = [x0]
+        local_ys = [c0y]
+        if x1 > local_xs[-1]: local_xs.append(x1); local_ys.append(c0y)
+        if x2 > local_xs[-1]: local_xs.append(x2); local_ys.append(c1y)
+        if x3 > local_xs[-1]: local_xs.append(x3); local_ys.append(c2y)
+        if xR > local_xs[-1]: local_xs.append(xR); local_ys.append(c2y)
+
+        # Append to full row
+        if not xs:
+            xs.extend(local_xs); ys.extend(local_ys)
+        else:
+            # avoid duplicate x at the junction
+            if local_xs[0] == xs[-1]:
+                local_xs = local_xs[1:]; local_ys = local_ys[1:]
+            xs.extend(local_xs); ys.extend(local_ys)
+
+        accWidth += polyWidth
+        i += 9
+
+    xs, ys = dedupe_monotonic(xs, ys)
+    rows_polylines.append((xs, ys))
+
+# Guard for empty
+if not rows_polylines:
+    raise RuntimeError("No rows parsed from CSV. Check csv_path or file format.")
+
+# --------------------------
+# Build one seamless mesh: resample each row, lay along Z, bridge quads
+# --------------------------
+mesh = bpy.data.meshes.new(OBJECT_NAME)
+obj = bpy.data.objects.new(OBJECT_NAME, mesh)
+bpy.context.collection.objects.link(obj)
+bm = bmesh.new()
+
+all_rows = []  # list of lists of BMVerts
+
+for r, (xs, ys) in enumerate(rows_polylines):
+    xr, yr = resample_polyline(xs, ys, N_SAMPLES)
+    z = r * DZ  # Z is depth
+    row_verts = []
+    for j in range(N_SAMPLES):
+        v = bm.verts.new((xr[j], yr[j], z))
+        row_verts.append(v)
+    all_rows.append(row_verts)
+
+bm.verts.index_update()
+
+# Bridge faces (quads) between consecutive rows
+for r in range(len(all_rows) - 1):
+    A, B = all_rows[r], all_rows[r+1]
+    for j in range(N_SAMPLES - 1):
+        v00, v01 = A[j], A[j+1]
+        v10, v11 = B[j], B[j+1]
+        try:
+            bm.faces.new([v00, v01, v11, v10])
+        except ValueError:
+            pass  # skip duplicates if any
+
+bm.to_mesh(mesh)
+bm.free()
+
+# Shade smooth
+obj.select_set(True)
+bpy.context.view_layer.objects.active = obj
+bpy.ops.object.shade_smooth()
+
+print(f"Built seamless surface: {len(rows_polylines)} rows × {N_SAMPLES} samples.")
